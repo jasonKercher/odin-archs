@@ -5,50 +5,71 @@ import "core:sys/unix"
 import "core:runtime"
 import "core:fmt"
 
-main :: proc() {
-	basic_file_write()
-	double_close_err()
-}
-
 basic_file_write :: proc() {
-	f, err := _file_create_and_write("basic.txt")
-	assume_ok(err)
+	f := _file_create_write("basic.txt", "hello os2")
 	assume_ok(os2.close(f))
 	assume_ok(os2.remove("basic.txt"))
 }
 
+no_exist_file_err :: proc() {
+	f, err := os2.open("file-that-does-not-exist.txt")
+	assert(err != nil)
+	os2.print_error(err, "file-that-does-not-exist.txt")
+}
+
 double_close_err :: proc() {
-	f, err := _file_create_and_write("double_close.txt")
-	assume_ok(err)
-
-	// close without destroying
-	fd := os2.fd(f)
-	res := unix.sys_close(int(fd))
-	assert(res == 0)
-
-	// leaks
-	err = os2.close(f)
-	v, ok := err.(os2.Platform_Error)
-	assert(v == os2.Platform_Error(unix.EBADF))
-
-	// unleak
-	delete(f.impl.name, f.impl.allocator)
-	free(f, f.impl.allocator)
-
+	f := _file_create_write("double_close.txt", "close")
+	assume_ok(os2.close(f))
+	assert(os2.close(f) != nil)
 	assume_ok(os2.remove("double_close.txt"))
 }
 
+read_random :: proc() {
+	s := "01234567890abcdef"
+	f := _file_create_write("random.txt", s)
+	assume_ok(os2.close(f))
 
-_file_create_and_write :: proc(name: string) -> (f: ^os2.File, err: os2.Error) {
+	err: os2.Error
+	f, err = os2.open("random.txt")
+
+	// full read
 	n: int
-
-	f = os2.create(name) or_return
+	buf: [64]u8
+	n, err = os2.read(f, buf[:])
 	assume_ok(err)
-	
-	s := "hello os2\n"
-	n = os2.write(f, transmute([]u8)s) or_return
 	assert(n == len(s))
+	assert(string(buf[:n]) == s)
 
+	// using read_at
+	for i := 1; i < len(s); i += 1 {
+		sub := s[i:]
+		n, err = os2.read_at(f, buf[:], i64(i))
+		assume_ok(err)
+		assert(n == len(sub))
+		assert(string(buf[:n]) == sub)
+	}
+
+	// using seek
+	for i := 1; i < len(s); i += 1 {
+		sub := s[i:]
+		os2.seek(f, i64(i), .Start)
+		n, err = os2.read(f, buf[:])
+		assume_ok(err)
+		assert(n == len(sub))
+		assert(string(buf[:n]) == sub)
+	}
+}
+
+
+_file_create_write :: proc(name, contents: string) -> (f: ^os2.File) {
+	err: os2.Error
+	f, err = os2.create(name)
+	assume_ok(err)
+	n: int
+	n, err = os2.write(f, transmute([]u8)contents)
+	assume_ok(err)
+	assert(n == len(contents))
 	return
 }
+
 
