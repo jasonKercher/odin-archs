@@ -82,7 +82,7 @@ symlinks :: proc() {
 	assume_ok(os2.close(f))
 
 	link_name: string
-	link_name, err = os2.read_link("link.txt")
+	link_name, err = os2.read_link("link.txt", context.allocator)
 	assume_ok(err)
 	assert(link_name == "target.txt")
 
@@ -118,9 +118,9 @@ file_times :: proc() {
 	assume_ok(os2.chtimes("time0.txt", time.Time{0}, time.Time{0}))
 	assume_ok(os2.fchtimes(f1, time.Time{0}, time.Time{0}))
 
-	info0, err0 := os2.stat("time0.txt")
+	info0, err0 := os2.stat("time0.txt", context.allocator)
 	assume_ok(err0)
-	info1, err1 := os2.fstat(f1)
+	info1, err1 := os2.fstat(f1, context.allocator)
 	assume_ok(err1)
 
 	assert(info0.modification_time == info1.modification_time)
