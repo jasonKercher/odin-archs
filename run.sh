@@ -13,10 +13,12 @@
 
 
 #g_all_archs=(amd64 386 arm arm64)
-g_all_archs=(arm)
+g_all_archs=(arm64)
 
 g_repo_url='https://github.com/jasonKercher/Odin'
 g_repo_branch='more-os2'
+
+g_extra_packages=(llvm-13 clang-13 make vim-nox)
 
 _dep_check() {
 	local dep="$1"
@@ -49,8 +51,8 @@ _container_call() {
 	fi
 
 	# butterfly meme: is this recursion?
-	podman exec $user --privileged -it "$container_name" ./build.sh "$@"
-	error_catch "failed to container exec ./build.sh $*"
+	podman exec $user --privileged -it "$container_name" "$@"
+	error_catch "failed to container exec $*"
 }
 
 _create_container() {
@@ -60,25 +62,47 @@ _create_container() {
 
 	local arch="$1"
 
-	if ! { podman images --noheading | grep -wqs "odin_${arch}"; }; then
+	if ! { podman images --noheading | grep -wqs "odin_${arch}_image"; }; then
 		./run.sh make "$arch"
 		error_catch "run.sh failed"
 	fi
 
 	# create the container(s) if it does not exist yet
-	if ! { podman ps --noheading -a | grep -wqs "odin_${arch}_container"; }; then
+	if ! { podman ps --noheading -a | grep -wqs "odin_${arch}"; }; then
 		uid=$(id -u)
 		gid=$(id -g)
 
 		podman run -dit \
+			--cap-add=SYS_PTRACE \
 			--workdir /home/odinite/vol \
-			--name "odin_${arch}_container" \
+			--name "odin_${arch}" \
 			--user $uid:$gid \
 			--userns keep-id \
 			--volume ./:/home/odinite/vol \
-			"odin_${arch}"
-		error_catch 'podman run failed'
+			"odin_${arch}_image"
+		error_catch '_create_container: podman run failed'
 	fi
+}
+
+_clean() {
+	podman kill "odin_${arch}_container"
+	podman rm "odin_${arch}_container"
+	podman rmi "odin_${arch}"
+	podman kill "odin_${arch}_compile"
+	podman rm "odin_${arch}_compile"
+	podman rmi "odin_${arch}_base_image"
+	buildah rm "base_${arch}"
+}
+
+cmd_clean() {
+	local archs="$@"
+	if [ "$#" -eq 0 ]; then
+		archs="${g_all_archs[@]}"
+	fi
+	for arch in "${archs[@]}"; do
+		_clean "$arch"
+		error_catch 'clean failed'
+	done
 }
 
 cmd_init() {
@@ -94,7 +118,6 @@ cmd_init() {
 		return
 	fi
 
-	shift
 	local archs="$@"
 	if [ "$#" -eq 0 ]; then
 		archs="${g_all_archs[@]}"
@@ -109,27 +132,39 @@ cmd_init() {
 # are installing extra things that we cannot get from
 # apt like Odin!
 cmd_compile() {
-	if [ "$container" != podman ]; then
-		1>&2 echo 'not in expected container??'
-		exit 1
+	#if [ "$container" != podman ]; then
+	#	1>&2 echo 'not in expected container??'
+	#	exit 1
+	#fi
+
+	if [ ! -d Odin ]; then
+		git clone -b "$g_repo_branch" "$g_repo_url"
 	fi
 
-	shift
-	arch="$1"
+	if ! command -v clang++; then
+		sudo ln -sv "$(which clang++-13)" /usr/bin/clang++
+	fi
+	if ! command -v clang; then
+		sudo ln -sv "$(which clang-13)" /usr/bin/clang
+	fi
+	if ! command -v llvm-link; then
+		sudo ln -sv "$(which llvm-link-13)" /usr/bin/llvm-link
+	fi
+	if ! command -v llvm-config; then
+		sudo ln -sv "$(which llvm-config-13)" /usr/bin/llvm-config
+	fi
+
+	cd Odin || exit 2
+	make
+	error_catch "failed to build odin"
+
+	cd .. || exit 2
 
 	if ! command -v odin; then
-		if [ ! -d Odin ]; then
-			git clone -b "$g_repo_branch" "$g_repo_url"
-		fi
-
-		cd Odin || exit 2
-		make || exit 2
-
-		sudo mv -va $(pwd)/Odin/odin /usr/bin/
-		sudo mv -va $(pwd)/Odin/core /usr/bin/
-
-		cd .. || exit 2
+		sudo ln -sv "$(pwd)/Odin/odin" /usr/bin/odin
+		sudo ln -sv "$(pwd)/Odin/core" /usr/bin/core
 	fi
+
 	exit
 }
 
@@ -137,30 +172,35 @@ _update() {
 	local arch="$1"
 
 	# remove container if it already exists
-	if { podman ps --noheading -a | grep -wqs "odin_${arch}_install_compile"; }; then
-		podman rm odin_${arch}_install_compile
+	if { podman ps --noheading -a | grep -wqs "odin_${arch}_compile"; }; then
+		if { podman ps --noheading | grep -wqs "odin_${arch}_compile"; }; then
+			podman kill odin_${arch}_compile
+		fi
+		podman rm odin_${arch}_compile
 	fi
 
 	podman run -dit \
+		--cap-add=SYS_PTRACE \
 		--workdir /home/rocko/vol \
-		--name odin_${arch}_install_compile \
+		--name odin_${arch}_compile \
 		--user root:root \
 		--volume ./:/home/rocko/vol \
-		odin_${arch}_no_compile
+		odin_${arch}_base_image
+	error_catch '_update podman run failed'
 
 	# run this script in the container to install odin
-	podman exec odin_${arch}_install_compile ./run.sh compile
-	error_catch "podman failed to update odin_${arch}_install_compile"
+	#podman exec odin_${arch}_compile ./run.sh compile
+	_container_call odin_${arch}_compile ./run.sh compile
+	error_catch "podman failed to update odin_${arch}_compile"
 
 	# commit the new container as an image with odin installed
 	# Now, we have all the dependencies ready.  We can now
 	# clean up the intermediate container and image.
-	podman commit odin_${arch}_install_compile odin_${arch}
-	podman stop odin_${arch}_install_compile
+	podman commit odin_${arch}_compile odin_${arch}_image
+	podman stop odin_${arch}_compile
 }
 
 cmd_update() {
-	shift
 	local archs="$@"
 	if [ "$#" -eq 0 ]; then
 		archs="${g_all_archs[@]}"
@@ -188,7 +228,7 @@ cmd_base() {
 
 	# If the original container already exists, we don't need to create it
 	if ! { buildah containers --noheading | grep -wqs $container; }; then
-		buildah from --arch "$arch" --name $container debian
+		buildah from --cap-add SYS_PTRACE --arch "$arch" --name $container debian
 	fi
 
 	# method not sane because of set -x
@@ -203,7 +243,7 @@ cmd_base() {
 	buildah run $container apt -y dist-upgrade
 	buildah run $container apt -y install sudo locales
 
-	buildah run $container apt -y install git build-essential llvm clang make vim-nox
+	buildah run $container apt -y install git build-essential "${g_extra_packages[@]}"
 
 	# reduce size of container by clearing out apt caches
 	buildah run $container apt clean && \
@@ -242,7 +282,7 @@ cmd_base() {
 	buildah config --workingdir /home/${user}/vol $container
 
 	# build original image
-	buildah commit $container odin_${arch}_no_compile:latest
+	buildah commit $container odin_${arch}_base_image:latest
 	buildah unmount $container
 }
 
@@ -252,29 +292,41 @@ cmd_make() {
 		exit 1
 	fi
 
-	shift
 	local archs="$@"
 	if [ "$#" -eq 0 ]; then
 		archs="${g_all_archs[@]}"
 	fi
 	for arch in "${archs[@]}"; do
-		if ! { podman ps --noheading -a | grep -wqs "odin_${arch}_no_compile"; }; then
+		if ! { podman ps --noheading -a | grep -wqs "odin_${arch}_base_image"; }; then
 			buildah unshare ./run.sh base "$arch"
+			_update "$arch"
+			buildah rm "base_${arch}"
+		else
+			_update "$arch"
 		fi
-		_update "$arch"
-		buildah rm "base_${arch}"
 	done
 }
 
+#linux_i386
+#linux_amd64
+#linux_arm64
+#linux_arm32
+
 cmd_run() {
-	# lol
-	odin run . "$@"
+	local arch=$1
+	local args
+	#case "$1" in
+	#386)   args+=(-target:linux_i386);  shift;;
+	#amd64) args+=(-target:linux_amd64); shift;;
+	#arm)   args+=(-target:linux_arm32); shift;;
+	#arm64) args+=(-target:linux_arm64); shift;;
+	#esac
+	odin run . -out:os2test "${args[@]}" "$@"
 }
 
 cmd_all() {
-	cmd_init
+	cmd_init "$@"
 
-	shift
 	local archs="$@"
 	if [ "$#" -eq 0 ]; then
 		archs="${g_all_archs[@]}"
@@ -299,6 +351,7 @@ _print_msg_help_exit() {
 	usage: $_script_name [-h] command
 
 	available commands:
+	clean:   clean up images and containers
 	init:    check dependencies and initialize images
 	make:    build container and build odin in container
 	compile: just rebuild compiler
@@ -352,6 +405,7 @@ _print_msg_help_exit() {
 	fi
 
 	case "${cmd,,}" in
+	clean)    cmd_clean "$@";;
 	init)     cmd_init "$@";;
 	make)     cmd_make "$@";;
 	base)     cmd_base "$@";;
