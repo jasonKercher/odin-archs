@@ -4,13 +4,10 @@
 # Automated method of testing Odin from multiple archs
 #############################################################
 
-g_default_archs=(arm64)
-
-declare -a g_archs=()
+declare -a g_archs=(archs)
 
 g_repo_url='https://github.com/jasonKercher/Odin'
 g_repo_branch='more-os2'
-
 g_extra_packages=(llvm-13 clang-13 make vim-nox)
 
 _dep_check() {
@@ -43,7 +40,6 @@ _container_call() {
 		error_catch 'failed to start container'
 	fi
 
-	# butterfly meme: is this recursion?
 	podman exec $user --privileged -it "$container_name" "$@"
 	error_catch "failed to container exec $*"
 }
@@ -186,11 +182,7 @@ _update() {
 }
 
 cmd_update() {
-	local archs="$@"
-	if [ "$#" -eq 0 ]; then
-		archs="${g_default_archs[@]}"
-	fi
-	for arch in "${archs[@]}"; do
+	for arch in "${g_archs[@]}"; do
 		_update "$arch"
 	done
 }
@@ -277,11 +269,7 @@ cmd_make() {
 		exit 1
 	fi
 
-	local archs="$@"
-	if [ "$#" -eq 0 ]; then
-		archs="${g_default_archs[@]}"
-	fi
-	for arch in "${archs[@]}"; do
+	for arch in "${g_archs[@]}"; do
 		if ! { podman ps --noheading -a | grep -wqs "odin_${arch}_base_image"; }; then
 			buildah unshare ./run.sh base "$arch"
 			_update "$arch"
@@ -376,7 +364,7 @@ _print_msg_help_exit() {
 	shift $((OPTIND-1))
 
 	if [ "${#g_archs[@]}" -eq 0 ]; then
-		g_archs="${g_default_archs[@]}"
+		eprintln "No architecture defined"
 	fi
 
 	if [ -z "$cmd" ]; then
