@@ -4,16 +4,9 @@
 # Automated method of testing Odin from multiple archs
 #############################################################
 
-# if [ "$distro" = Ubuntu ] && [ "$majmin" = 16.04 ]; then
-# 	is_local=true
-# 	if [ -n "$clean_path" ]; then
-# 		export PATH=$clean_path
-# 	fi
-# fi
+g_default_archs=(arm64)
 
-
-#g_all_archs=(amd64 386 arm arm64)
-g_all_archs=(arm64)
+declare -a g_archs=()
 
 g_repo_url='https://github.com/jasonKercher/Odin'
 g_repo_branch='more-os2'
@@ -85,9 +78,9 @@ _create_container() {
 }
 
 _clean() {
-	podman kill "odin_${arch}_container"
-	podman rm "odin_${arch}_container"
-	podman rmi "odin_${arch}"
+	podman kill "odin_${arch}"
+	podman rm "odin_${arch}"
+	podman rmi "odin_${arch}_image"
 	podman kill "odin_${arch}_compile"
 	podman rm "odin_${arch}_compile"
 	podman rmi "odin_${arch}_base_image"
@@ -95,11 +88,7 @@ _clean() {
 }
 
 cmd_clean() {
-	local archs="$@"
-	if [ "$#" -eq 0 ]; then
-		archs="${g_all_archs[@]}"
-	fi
-	for arch in "${archs[@]}"; do
+	for arch in "${g_archs[@]}"; do
 		_clean "$arch"
 		error_catch 'clean failed'
 	done
@@ -118,11 +107,7 @@ cmd_init() {
 		return
 	fi
 
-	local archs="$@"
-	if [ "$#" -eq 0 ]; then
-		archs="${g_all_archs[@]}"
-	fi
-	for arch in "${archs[@]}"; do
+	for arch in "${g_archs[@]}"; do
 		_create_container "$arch"
 		error_catch '_create_container failed'
 	done
@@ -203,7 +188,7 @@ _update() {
 cmd_update() {
 	local archs="$@"
 	if [ "$#" -eq 0 ]; then
-		archs="${g_all_archs[@]}"
+		archs="${g_default_archs[@]}"
 	fi
 	for arch in "${archs[@]}"; do
 		_update "$arch"
@@ -294,7 +279,7 @@ cmd_make() {
 
 	local archs="$@"
 	if [ "$#" -eq 0 ]; then
-		archs="${g_all_archs[@]}"
+		archs="${g_default_archs[@]}"
 	fi
 	for arch in "${archs[@]}"; do
 		if ! { podman ps --noheading -a | grep -wqs "odin_${arch}_base_image"; }; then
@@ -307,34 +292,27 @@ cmd_make() {
 	done
 }
 
+# Cross compile options
 #linux_i386
 #linux_amd64
 #linux_arm64
 #linux_arm32
 
+_run() {
+	Odin/odin run . -out:os2test "$@"
+}
+
 cmd_run() {
-	local arch=$1
-	local args
-	#case "$1" in
-	#386)   args+=(-target:linux_i386);  shift;;
-	#amd64) args+=(-target:linux_amd64); shift;;
-	#arm)   args+=(-target:linux_arm32); shift;;
-	#arm64) args+=(-target:linux_arm64); shift;;
-	#esac
-	odin run . -out:os2test "${args[@]}" "$@"
+	for arch in "${g_archs[@]}"; do
+		_container_call "odin_${arch}" ./run.sh _run "$@"
+	done
 }
 
 cmd_all() {
-	cmd_init "$@"
-
-	local archs="$@"
-	if [ "$#" -eq 0 ]; then
-		archs="${g_all_archs[@]}"
-	fi
-	for arch in "${archs[@]}"; do
-		cmd_run "$arch"
-		error_catch 'cmd_run failed'
-	done
+	cmd_init
+	error_catch 'cmd_init failed'
+	cmd_run "$@"
+	error_catch 'cmd_run failed'
 }
 
 _print_msg_help_exit() {
@@ -360,7 +338,6 @@ _print_msg_help_exit() {
 	all:     perform all commands from start to finish
 
 	HELP
-
 	exit $ret
 }
 
@@ -383,17 +360,24 @@ _print_msg_help_exit() {
 
 	_project_root=$(pwd)/
 
-	while getopts ':c:h' opt; do
+	while getopts ':-:c:A:h' opt; do
 		case "$opt" in
-		h)
-			_print_msg_help_exit;;
-		c)
-			cmd=${OPTARG};;
-		*)
-			_print_msg_help_exit "$OPTARG: invalid argument";;
+		A) g_archs=("$OPTARG");;
+		h) _print_msg_help_exit;;
+		c) cmd=${OPTARG};;
+		-) # long option parsing
+			case "$OPTARG" in
+			help) _print_msg_help_exit;;
+			*)    error_raise "unknown long option $OPTARG";;
+			esac;;
+		*) _print_msg_help_exit "$OPTARG: invalid argument";;
 		esac
 	done
 	shift $((OPTIND-1))
+
+	if [ "${#g_archs[@]}" -eq 0 ]; then
+		g_archs="${g_default_archs[@]}"
+	fi
 
 	if [ -z "$cmd" ]; then
 		cmd="$1"
