@@ -20,7 +20,7 @@ error_set() {
 }
 
 # raise error or warning
-# --email   sends out warning or error to $sys_email
+# --email   sends out warning or error to $g_email
 # --no-exit issues a warning and does not exit the script
 error_raise() {
 	local res=$?
@@ -48,12 +48,12 @@ error_raise() {
 
 	eprintln "$msg"
 
-	if $send_email && [ -n "$sys_email" ]; then
+	if $send_email && [ -n "$g_email" ]; then
 		# TODO: make version that supports html
 		if $no_exit; then
-			mail -s "Warning: ${msg:0:25}" "$sys_email" <<< "$msg"
+			mail -s "Warning: ${msg:0:25}" "$g_email" <<< "$msg"
 		else
-			mail -s "Error: ${msg:0:25}" "$sys_email" <<< "$msg"
+			mail -s "Error: ${msg:0:25}" "$g_email" <<< "$msg"
 		fi
 	fi
 
