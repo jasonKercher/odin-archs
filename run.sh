@@ -220,7 +220,7 @@ cmd_make() {
 		if ! { podman ps --noheading -a | grep -wqs "odin_${arch}"; }; then
 			error_raise "missing odin container.  Try '$0 init'"
 		else
-			_container_call "odin_${arch}" _compile
+			_container_call "odin_${arch}" ./run.sh _compile
 		fi
 	done
 }
@@ -244,6 +244,9 @@ cmd_odin() {
 cmd_all() {
 	cmd_init
 	error_catch 'cmd_init failed'
+
+	# TODO
+
 	cmd_odin "$@"
 	error_catch 'cmd_odin failed'
 }
