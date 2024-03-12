@@ -6,7 +6,7 @@
 
 declare -a g_archs=(arm64)
 
-g_repo_url='https://github.com/odin-lang/Odin'
+g_repo_url='https://github.com/odin-lang/Odin.git'
 g_repo_branch='master'
 g_extra_packages=(llvm-13 clang-13 make vim-nox)
 
