@@ -4,7 +4,10 @@
 # Automated method of testing Odin from multiple archs
 #############################################################
 
-declare -a g_archs=(arm64)
+# Allow external declaration
+if [ -z "$g_archs" ]; then
+	declare -a g_archs=(arm64)
+fi
 
 g_repo_url='https://github.com/odin-lang/Odin.git'
 g_repo_branch='master'
@@ -21,19 +24,20 @@ _dep_check() {
 
 # execute fuction in this script from within the container.
 _container_call() {
+	local user
 	if [ "$1" = '--root' ]; then
 		user='-u root:root'
 		shift
 	fi
 
+	local container_name="$1"
+	shift
+
 	# running natively or already in container; just call the function
-	if $is_local || [ "$container" = podman ]; then
+	if [ "$container_name" = odin_native ] || [ "$container" = podman ]; then
 		"$@"
 		return
 	fi
-
-	local container_name="$1"
-	shift
 
 	if ! { podman ps --noheading | grep -wqs "$container_name"; }; then
 		podman start "$container_name"
@@ -49,6 +53,7 @@ _clean() {
 	podman rm "odin_${arch}"
 	podman rmi "odin_${arch}_image"
 	buildah rm "base_${arch}"
+	rm "Odin/odin-${arch}"
 }
 
 cmd_clean() {
@@ -164,21 +169,15 @@ _create_container() {
 }
 
 cmd_init() {
-	if ! $is_local; then
-		# This build requires buildah + podman to containerize the build.
-		# Also requires qemu-user or something...
-		_dep_check buildah
-		_dep_check podman
-	fi
-
-	# build the image if it doesn't exist...
-	if $is_local; then
-		return
-	fi
-
 	for arch in "${g_archs[@]}"; do
-		_create_container "$arch"
-		error_catch '_create_container failed'
+		if [ "$arch" != native ]; then
+			# This build requires buildah + podman to containerize the build.
+			# Also requires qemu-user or something...
+			_dep_check buildah
+			_dep_check podman
+			_create_container "$arch"
+			error_catch '_create_container failed'
+		fi
 	done
 }
 
@@ -186,6 +185,7 @@ cmd_init() {
 # are installing extra things that we cannot get from
 # apt like Odin!
 _compile() {
+	local arch="$1"
 	if [ ! -d Odin ]; then
 		git clone -b "$g_repo_branch" "$g_repo_url"
 	fi
@@ -206,6 +206,7 @@ _compile() {
 	cd Odin || exit 2
 	make
 	error_catch "failed to build odin"
+	cp -v odin "odin-${arch}"
 	cd ..
 	exit
 }
@@ -217,11 +218,11 @@ cmd_make() {
 	fi
 
 	for arch in "${g_archs[@]}"; do
-		if ! { podman ps --noheading -a | grep -wqs "odin_${arch}"; }; then
-			error_raise "missing odin container.  Try '$0 init'"
-		else
-			_container_call "odin_${arch}" ./run.sh _compile
+		if [ "$arch" != native ] && ! { podman ps --noheading -a | grep -wqs "odin_${arch}"; }; then
+			error_raise "missing odin container.  Try '$0 -A \"$arch\" init'"
 		fi
+		_container_call "odin_${arch}" ./run.sh _compile "$arch"
+		error_catch "function _compile failed"
 	done
 }
 
@@ -231,13 +232,10 @@ cmd_make() {
 #linux_arm64
 #linux_arm32
 
-_odin() {
-	Odin/odin "$@"
-}
-
 cmd_odin() {
 	for arch in "${g_archs[@]}"; do
-		_container_call "odin_${arch}" ./run.sh _odin "$@"
+		_container_call "odin_${arch}" "Odin/odin-${arch}" "$@"
+		# error_catch ??
 	done
 }
 
@@ -245,7 +243,8 @@ cmd_all() {
 	cmd_init
 	error_catch 'cmd_init failed'
 
-	# TODO
+	cmd_make
+	error_catch 'cmd_make failed'
 
 	cmd_odin "$@"
 	error_catch 'cmd_odin failed'
@@ -262,16 +261,21 @@ _print_msg_help_exit() {
 
 	cat <<- HELP
 
-	usage: $_script_name [-h] command
+	usage: $_script_name [-h] [-A arch] command
 
 	available commands:
 	clean:   clean up images and containers
-	init:    check dependencies and initialize images
-	make:    build container and build odin in container
-	compile: just rebuild compiler
-	base:    rebuild the base container
+	init:    check dependencies and create container
+	make:    build the odin compiler inside container
 	odin:    run odin compiler within container
 	all:     perform all commands from start to finish
+
+	options:
+	name         argument     description
+	  --help|-h  <none>       print this
+	  -A         ARCH         one of native,amd64,i386,arm,arm64
+	                          where native does not run in a container
+	                          This overrides \${g_archs}
 
 	HELP
 	exit $ret
@@ -280,8 +284,6 @@ _print_msg_help_exit() {
 # main
 {
 	set -o pipefail  # this should be default behavior...
-
-	is_local=false
 
 	distro=$(lsb_release -a 2>> /dev/null | grep 'Distributor ID' | cut -f2)
 	majmin=$(lsb_release -a 2>> /dev/null | grep 'Release' | cut -f2)
@@ -298,7 +300,7 @@ _print_msg_help_exit() {
 
 	while getopts ':-:c:A:h' opt; do
 		case "$opt" in
-		A) g_archs=("$OPTARG");;
+		A) g_archs=($OPTARG);;
 		h) _print_msg_help_exit;;
 		c) cmd=${OPTARG};;
 		-) # long option parsing
