@@ -22,11 +22,24 @@ _dep_check() {
 	fi
 }
 
+_container_kill() {
+	local container_name="$1"
+	shift
+	# running natively or already in container, do nothing
+	if [ "$container_name" = odin_native ] || [ "$container" = podman ]; then
+		return
+	fi
+
+	if { podman ps --noheading | grep -wqs "$container_name"; }; then
+		podman kill "$container_name"
+	fi
+}
+
 # execute fuction in this script from within the container.
 _container_call() {
-	local user
+	local is_root
 	if [ "$1" = '--root' ]; then
-		user='-u root:root'
+		is_root=true
 		shift
 	fi
 
@@ -43,6 +56,8 @@ _container_call() {
 		podman start "$container_name"
 		error_catch 'failed to start container'
 	fi
+	local user
+	$is_root && user='-u root:root'
 
 	podman exec $user --privileged -it "$container_name" "$@"
 	error_catch "failed to container exec $*"
@@ -184,12 +199,7 @@ cmd_init() {
 # If we are calling this from within a container. We
 # are installing extra things that we cannot get from
 # apt like Odin!
-_compile() {
-	local arch="$1"
-	if [ ! -d Odin ]; then
-		git clone -b "$g_repo_branch" "$g_repo_url"
-	fi
-
+_llvm_check() {
 	if ! command -v clang++; then
 		sudo ln -sv "$(which clang++-13)" /usr/bin/clang++
 	fi
@@ -202,8 +212,16 @@ _compile() {
 	if ! command -v llvm-config; then
 		sudo ln -sv "$(which llvm-config-13)" /usr/bin/llvm-config
 	fi
+}
+
+_compile() {
+	local arch="$1"
 
 	cd Odin || exit 2
+
+	# It do be dubious
+	git config --global --add safe.directory /home/odinite/vol/Odin
+
 	make
 	error_catch "failed to build odin"
 	cp -v odin "odin-${arch}"
@@ -217,10 +235,18 @@ cmd_make() {
 		exit 1
 	fi
 
+	if [ ! -d Odin ]; then
+		git clone -b "$g_repo_branch" "$g_repo_url"
+	fi
+
 	for arch in "${g_archs[@]}"; do
 		if [ "$arch" != native ] && ! { podman ps --noheading -a | grep -wqs "odin_${arch}"; }; then
 			error_raise "missing odin container.  Try '$0 -A \"$arch\" init'"
 		fi
+
+		_container_call --root "odin_${arch}" ./run.sh _llvm_check
+		error_catch "function _llvm_check failed"
+
 		_container_call "odin_${arch}" ./run.sh _compile "$arch"
 		error_catch "function _compile failed"
 	done
@@ -337,9 +363,10 @@ _print_msg_help_exit() {
 		# command at a time via podman exec, it's cleaner to just allow
 		# this script to be run from within the container and execute
 		# those functions directly.
-		if ! declare -F "$cmd"; then
+		if ! declare -F "$cmd" >> /dev/null; then
 			error_raise "$cmd is not a defined function"
 		fi
+		printf '\nRUN [%s %s]\n\n' "$cmd" "$*"
 		"$cmd" "$@"
 		error_catch "function failed: $cmd $*"
 	esac
