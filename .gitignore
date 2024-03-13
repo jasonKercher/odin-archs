@@ -1,4 +1,5 @@
 Odin/
-src/
 example
 .gdb_history
+
+src/*
