@@ -79,8 +79,7 @@ cmd_clean() {
 }
 
 _base() {
-	local arch="$1"
-
+	local arch="${g_archs[0]}"
 	local user=odinite
 	# NOTE: these should not map to an existing host user or group
 	# TODO: maybe add some smarts here...
@@ -162,7 +161,7 @@ _create_container() {
 	local arch="$1"
 
 	if ! { podman images --noheading | grep -wqs "odin_${arch}_image"; }; then
-		./run.sh _base "$arch"
+		./run.sh --arch="$arch" _base
 		error_catch "run.sh failed"
 	fi
 
@@ -215,8 +214,6 @@ _llvm_check() {
 }
 
 _compile() {
-	local arch="$1"
-
 	cd Odin || exit 2
 
 	# It do be dubious
@@ -224,7 +221,7 @@ _compile() {
 
 	make
 	error_catch "failed to build odin"
-	cp -v odin "odin-${arch}"
+	cp -v odin "odin-${g_archs[0]}"
 	cd ..
 	exit
 }
@@ -244,10 +241,10 @@ cmd_make() {
 			error_raise "missing odin container.  Try '$0 -A \"$arch\" init'"
 		fi
 
-		_container_call --root "odin_${arch}" ./run.sh _llvm_check
+		_container_call --root "odin_${arch}" ./run.sh --arch="$arch" _llvm_check
 		error_catch "function _llvm_check failed"
 
-		_container_call "odin_${arch}" ./run.sh _compile "$arch"
+		_container_call "odin_${arch}" ./run.sh --arch="$arch" _compile
 		error_catch "function _compile failed"
 	done
 }
@@ -332,11 +329,11 @@ _print_msg_help_exit() {
 		fi
 
 		case "$opt" in
-		A|arch) g_archs=($OPTARG);;
-		h|help) _print_msg_help_exit;;
-		c|cmd)  cmd=${OPTARG};;
-		\?) exit 2;;
-		*) _print_msg_help_exit "$OPTARG: invalid argument";;
+		A | arch) g_archs=($OPTARG);;
+		h | help) _print_msg_help_exit;;
+		c | cmd)  cmd=${OPTARG};;
+		\?)       exit 2;;
+		*)        _print_msg_help_exit "$OPTARG: invalid argument";;
 		esac
 	done
 	shift $((OPTIND-1))
@@ -368,7 +365,11 @@ _print_msg_help_exit() {
 		if ! declare -F "$cmd" >> /dev/null; then
 			error_raise "$cmd is not a defined function"
 		fi
-		printf '\nRUN [%s %s]\n\n' "$cmd" "$*"
+		if [ $# -eq 0 ]; then
+			printf '\nRUN [%s]\n\n' "$cmd"
+		else
+			printf '\nRUN [%s %s]\n\n' "$cmd" "$*"
+		fi
 		"$cmd" "$@"
 		error_catch "function failed: $cmd $*"
 	esac

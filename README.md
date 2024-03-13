@@ -2,7 +2,7 @@ Use `run.sh` to compile and run the odin compiler under different architectures.
 
 This works by cloning a local copy of the compiler and mounting the current directory
 as a volume in the container.  Architecture is controlled by the `${g_archs}`
-variable in `run.sh` which can be treated as an array.  This can be set externally:
+variable in `run.sh` which can be treated as an *array*.  This can be set externally:
 
 ```sh
 g_archs=arm64 ./run.sh init
@@ -21,8 +21,8 @@ Available architectures:
 * i386
 * native
 
-Native will run outside of a container. Currently, arm and i386 do not appear
-to build the compiler.
+Native will run outside of a container. Currently, arm is the only one that doesn't
+build the compiler successfully.
 
 The `init` command will build the container needed to run a specific architecture.
 
@@ -33,10 +33,12 @@ The `odin` command, will execute the compiler with your provided arguments insid
 Example:
 
 ```sh
-ps1 :) ./run.sh -A "arm64 native amd64" odin run example.odin -file
+ps1 :) ./run.sh --arch="arm64 native i386 amd64" odin run example.odin -file
 hello from arm64
 hello from amd64
+hello from i386
 hello from amd64
+ps1 :) |
 ```
 
 ### Dependencies
