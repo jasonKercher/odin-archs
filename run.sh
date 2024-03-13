@@ -6,7 +6,7 @@
 
 # Allow external declaration
 if [ -z "$g_archs" ]; then
-	declare -a g_archs=(arm64)
+	declare -a g_archs=()
 fi
 
 g_repo_url='https://github.com/odin-lang/Odin.git'
@@ -297,11 +297,11 @@ _print_msg_help_exit() {
 	all:     perform all commands from start to finish
 
 	options:
-	name         argument     description
-	  --help|-h  <none>       print this
-	  -A         ARCH         one of native,amd64,i386,arm,arm64
-	                          where native does not run in a container
-	                          This overrides \${g_archs}
+	name       argument     description
+	--help|-h  <none>       print this
+	-A         ARCH         one of native,amd64,i386,arm,arm64
+	                        where native does not run in a container
+	                        This overrides \${g_archs}
 
 	HELP
 	exit $ret
@@ -325,22 +325,24 @@ _print_msg_help_exit() {
 	_project_root=$(pwd)/
 
 	while getopts ':-:c:A:h' opt; do
+		if [ "$opt" = "-" ]; then
+			opt="${OPTARG%%=*}"
+			OPTARG="${OPTARG#$opt}"
+			OPTARG="${OPTARG#=}"
+		fi
+
 		case "$opt" in
-		A) g_archs=($OPTARG);;
-		h) _print_msg_help_exit;;
-		c) cmd=${OPTARG};;
-		-) # long option parsing
-			case "$OPTARG" in
-			help) _print_msg_help_exit;;
-			*)    error_raise "unknown long option $OPTARG";;
-			esac;;
+		A|arch) g_archs=($OPTARG);;
+		h|help) _print_msg_help_exit;;
+		c|cmd)  cmd=${OPTARG};;
+		\?) exit 2;;
 		*) _print_msg_help_exit "$OPTARG: invalid argument";;
 		esac
 	done
 	shift $((OPTIND-1))
 
 	if [ "${#g_archs[@]}" -eq 0 ]; then
-		eprintln "No architecture defined"
+		_print_msg_help_exit "No architecture defined; set \${g_archs} or use -A|--arch option"
 	fi
 
 	if [ -z "$cmd" ]; then
