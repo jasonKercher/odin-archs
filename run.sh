@@ -75,7 +75,12 @@ cmd_clean() {
 	done
 }
 
+_install_llvm17() {
+	echo "GO GET FUCKED!"
+}
+
 _base() {
+	set -e  # no errors allowed
 	local arch="${g_archs[0]}"
 	local user=odinist
 
@@ -92,7 +97,7 @@ _base() {
 
 	# If the original container already exists, we don't need to create it
 	if ! { buildah containers --noheading | grep -wqs $container; }; then
-		buildah from --cap-add SYS_PTRACE --arch "$arch" --name $container debian
+		buildah from --cap-add SYS_PTRACE --arch "$arch" --name $container debian:unstable
 	fi
 
 	# method not sane because of set -x
@@ -102,11 +107,19 @@ _base() {
 		mountpoint=$(buildah mount ${container})
 	fi
 
-
 	buildah run $container apt update
 	buildah run $container apt -y dist-upgrade
-	buildah run $container apt -y install sudo locales
+	buildah run $container apt -y install sudo locales ca-certificates
 
+	### Update for llvm 17 after ca-cert install
+	##cat > ${mountpoint}/etc/apt/sources.list <<- EOF
+
+	### LLVM 17
+	##deb http://deb.debian.org/debian/ unstable main contrib non-free
+	##deb-src http://deb.debian.org/debian/ unstable main contrib non-free
+	##EOF
+	
+	buildah run $container apt update
 	buildah run $container apt -y install git build-essential "$@"
 
 	# reduce size of container by clearing out apt caches
@@ -148,6 +161,8 @@ _base() {
 	# build original image
 	buildah commit $container odin_${arch}_image:latest
 	buildah unmount $container
+
+	set +e #  errors allowed again
 }
 
 _create_container() {
@@ -159,8 +174,8 @@ _create_container() {
 	shift
 
 	if ! { podman images --noheading | grep -wqs "odin_${arch}_image"; }; then
-		./run.sh --arch="$arch" _base "$@"
-		error_catch "run.sh failed"
+		buildah unshare ./run.sh --arch="$arch" _base "$@"
+		error_catch "buildah unshare ./run.sh failed"
 	fi
 
 	# create the container(s) if it does not exist yet
@@ -181,11 +196,8 @@ _create_container() {
 }
 
 cmd_init() {
-	#TODO
-	local llvm_version=17
 	local extra_packages
-
-	local opt OPTARG
+	local opt OPTARG OPTIND
 	while getopts ':-:l:p:h' opt; do
 		if [ "$opt" = "-" ]; then
 			opt="${OPTARG%%=*}"
@@ -194,16 +206,15 @@ cmd_init() {
 		fi
 
 		case "$opt" in
-		l | llvm)    llvm_version=$OPTARG;;
 		p | package) extra_packages=(${OPTARG});;
-		h | help)    echo 'no init help'; return;;
+		h | help)    echo 'lol no'; return;;
 		\?)          exit 2;;
 		*)           eprintln "$OPTARG: invalid init argument";;
 		esac
 	done
 	shift $((OPTIND-1))
 
-	extra_packages+=(llvm-13 clang-13 llvm-14 clang-14 llvm-17 clang-17 make vim-nox)
+	extra_packages+=(llvm-14 clang-14 llvm-17 clang-17 make vim-nox)
 
 	for arch in "${g_archs[@]}"; do
 		if [ "$arch" != native ]; then
@@ -221,19 +232,12 @@ cmd_init() {
 # are installing extra things that we cannot get from
 # apt like Odin!
 _llvm_check() {
-	#if ! command -v clang++; then
-	#	sudo ln -sv "$(which clang++-${g_llvm_version})" /usr/bin/clang++
-	#fi
-	#if ! command -v clang; then
-	#	sudo ln -sv "$(which clang-${g_llvm_version})" /usr/bin/clang
-	#fi
-	#if ! command -v llvm-link; then
-	#	sudo ln -sv "$(which llvm-link-${g_llvm_version})" /usr/bin/llvm-link
-	#fi
-	#if ! command -v llvm-config; then
-	#	sudo ln -sv "$(which llvm-config-${g_llvm_version})" /usr/bin/llvm-config
-	#fi
-	echo 'llvm-check TODO...'
+	local llvm_version=$1
+	[ -z "$llvm_version" ] && error_raise 'no llvm version set!?'
+	sudo ln -fsv "$(which clang++-${llvm_version})" /usr/bin/clang++
+	sudo ln -fsv "$(which clang-${llvm_version})" /usr/bin/clang
+	sudo ln -fsv "$(which llvm-link-${llvm_version})" /usr/bin/llvm-link
+	sudo ln -fsv "$(which llvm-config-${llvm_version})" /usr/bin/llvm-config
 }
 
 _compile() {
@@ -255,11 +259,30 @@ cmd_make() {
 		exit 1
 	fi
 
-	# TODO
-	g_repo_url='https://github.com/odin-lang/Odin.git'
-	g_repo_branch='master'
+	local llvm_version=14
+	local repo_url='https://github.com/odin-lang/Odin.git'
+	local repo_branch='master'
+	local opt OPTARG OPTIND
+	while getopts ':-:b:r:h' opt; do
+		if [ "$opt" = "-" ]; then
+			opt="${OPTARG%%=*}"
+			OPTARG="${OPTARG#$opt}"
+			OPTARG="${OPTARG#=}"
+		fi
+
+		case "$opt" in
+		l | llvm)   llvm_version=$OPTARG;;
+		b | branch) repo_branch=$OPTARG;;
+		r | remote) repo_url="$OPTARG";;
+		h | help)   echo 'no make help =P'; return;;
+		\?)         exit 2;;
+		*)          ((OPTIND -= 1)); break;; # trying to push the rest to _compile
+		esac
+	done
+	shift $((OPTIND-1))
+
 	if [ ! -d Odin ]; then
-		git clone -b "$g_repo_branch" "$g_repo_url"
+		git clone -b "$repo_branch" "$repo_url"
 	fi
 
 	for arch in "${g_archs[@]}"; do
@@ -267,10 +290,10 @@ cmd_make() {
 			error_raise "missing odin container.  Try '$0 -A \"$arch\" init'"
 		fi
 
-		_container_call --root "odin_${arch}" ./run.sh --arch="$arch" _llvm_check
+		_container_call --root "odin_${arch}" ./run.sh --arch="$arch" _llvm_check "$llvm_version"
 		error_catch "function _llvm_check failed"
 
-		_container_call "odin_${arch}" ./run.sh --arch="$arch" _compile
+		_container_call "odin_${arch}" ./run.sh --arch="$arch" _compile "$@"
 		error_catch "function _compile failed"
 	done
 }
@@ -292,7 +315,7 @@ cmd_all() {
 	cmd_init
 	error_catch 'cmd_init failed'
 
-	cmd_make
+	cmd_make 17
 	error_catch 'cmd_make failed'
 
 	cmd_odin "$@"
@@ -356,11 +379,11 @@ _print_msg_help_exit() {
 		fi
 
 		case "$opt" in
-		A | arch)    g_archs=($OPTARG);;
-		c | cmd)     cmd=${OPTARG};;
-		h | help)    _print_msg_help_exit;;
-		\?)          exit 2;;
-		*)           _print_msg_help_exit "$OPTARG: invalid argument";;
+		A | arch) g_archs=($OPTARG);;
+		c | cmd)  cmd=${OPTARG};;
+		h | help) _print_msg_help_exit;;
+		\?)       exit 2;;
+		*)        _print_msg_help_exit "$OPTARG: invalid argument";;
 		esac
 	done
 	shift $((OPTIND-1))
