@@ -97,7 +97,7 @@ _base() {
 
 	# If the original container already exists, we don't need to create it
 	if ! { buildah containers --noheading | grep -wqs $container; }; then
-		buildah from --cap-add SYS_PTRACE --arch "$arch" --name $container debian:unstable
+		buildah from --cap-add SYS_PTRACE --arch "$arch" --name $container debian:unstable-20240311
 	fi
 
 	# method not sane because of set -x
@@ -118,7 +118,7 @@ _base() {
 	##deb http://deb.debian.org/debian/ unstable main contrib non-free
 	##deb-src http://deb.debian.org/debian/ unstable main contrib non-free
 	##EOF
-	
+
 	buildah run $container apt update
 	buildah run $container apt -y install git build-essential "$@"
 
@@ -228,25 +228,22 @@ cmd_init() {
 	done
 }
 
-# If we are calling this from within a container. We
-# are installing extra things that we cannot get from
-# apt like Odin!
-_llvm_check() {
+_compile() {
+	cd Odin || exit 2
+
 	local llvm_version=$1
 	[ -z "$llvm_version" ] && error_raise 'no llvm version set!?'
+	shift
+
 	sudo ln -fsv "$(which clang++-${llvm_version})" /usr/bin/clang++
 	sudo ln -fsv "$(which clang-${llvm_version})" /usr/bin/clang
 	sudo ln -fsv "$(which llvm-link-${llvm_version})" /usr/bin/llvm-link
 	sudo ln -fsv "$(which llvm-config-${llvm_version})" /usr/bin/llvm-config
-}
-
-_compile() {
-	cd Odin || exit 2
 
 	# It do be dubious
 	git config --global --add safe.directory /home/odinite/vol/Odin
 
-	make
+	make "$@"
 	error_catch "failed to build odin"
 	cp -v odin "odin-${g_archs[0]}"
 	cd ..
@@ -259,7 +256,7 @@ cmd_make() {
 		exit 1
 	fi
 
-	local llvm_version=14
+	local llvm_version=17
 	local repo_url='https://github.com/odin-lang/Odin.git'
 	local repo_branch='master'
 	local opt OPTARG OPTIND
@@ -290,10 +287,7 @@ cmd_make() {
 			error_raise "missing odin container.  Try '$0 -A \"$arch\" init'"
 		fi
 
-		_container_call --root "odin_${arch}" ./run.sh --arch="$arch" _llvm_check "$llvm_version"
-		error_catch "function _llvm_check failed"
-
-		_container_call "odin_${arch}" ./run.sh --arch="$arch" _compile "$@"
+		_container_call --root "odin_${arch}" ./run.sh --arch="$arch" _compile "$llvm_version" "$@"
 		error_catch "function _compile failed"
 	done
 }
@@ -348,7 +342,7 @@ _print_msg_help_exit() {
 	--arch|-A    ARCH  one of native,amd64,i386,arm,arm64
 	                   where native does not run in a container
 	                   This overrides \${g_arch}
-	
+
 
 	HELP
 	exit $ret
