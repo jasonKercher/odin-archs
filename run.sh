@@ -9,10 +9,6 @@ if [ -z "$g_archs" ]; then
 	declare -a g_archs=()
 fi
 
-g_repo_url='https://github.com/odin-lang/Odin.git'
-g_repo_branch='master'
-g_extra_packages=(llvm-13 clang-13 make vim-nox)
-
 _dep_check() {
 	local dep="$1"
 
@@ -69,6 +65,7 @@ _clean() {
 	podman rmi "odin_${arch}_image"
 	buildah rm "base_${arch}"
 	rm "Odin/odin-${arch}"
+	true
 }
 
 cmd_clean() {
@@ -80,9 +77,9 @@ cmd_clean() {
 
 _base() {
 	local arch="${g_archs[0]}"
-	local user=odinite
+	local user=odinist
+
 	# NOTE: these should not map to an existing host user or group
-	# TODO: maybe add some smarts here...
 	local uid=7272
 	local gid=7272
 	local container="base_${arch}"
@@ -110,7 +107,7 @@ _base() {
 	buildah run $container apt -y dist-upgrade
 	buildah run $container apt -y install sudo locales
 
-	buildah run $container apt -y install git build-essential "${g_extra_packages[@]}"
+	buildah run $container apt -y install git build-essential "$@"
 
 	# reduce size of container by clearing out apt caches
 	buildah run $container apt clean && \
@@ -159,9 +156,10 @@ _create_container() {
 	fi
 
 	local arch="$1"
+	shift
 
 	if ! { podman images --noheading | grep -wqs "odin_${arch}_image"; }; then
-		./run.sh --arch="$arch" _base
+		./run.sh --arch="$arch" _base "$@"
 		error_catch "run.sh failed"
 	fi
 
@@ -183,13 +181,37 @@ _create_container() {
 }
 
 cmd_init() {
+	#TODO
+	local llvm_version=17
+	local extra_packages
+
+	local opt OPTARG
+	while getopts ':-:l:p:h' opt; do
+		if [ "$opt" = "-" ]; then
+			opt="${OPTARG%%=*}"
+			OPTARG="${OPTARG#$opt}"
+			OPTARG="${OPTARG#=}"
+		fi
+
+		case "$opt" in
+		l | llvm)    llvm_version=$OPTARG;;
+		p | package) extra_packages=(${OPTARG});;
+		h | help)    echo 'no init help'; return;;
+		\?)          exit 2;;
+		*)           eprintln "$OPTARG: invalid init argument";;
+		esac
+	done
+	shift $((OPTIND-1))
+
+	extra_packages+=(llvm-13 clang-13 llvm-14 clang-14 llvm-17 clang-17 make vim-nox)
+
 	for arch in "${g_archs[@]}"; do
 		if [ "$arch" != native ]; then
 			# This build requires buildah + podman to containerize the build.
 			# Also requires qemu-user or something...
 			_dep_check buildah
 			_dep_check podman
-			_create_container "$arch"
+			_create_container "$arch" "${extra_packages[@]}"
 			error_catch '_create_container failed'
 		fi
 	done
@@ -199,18 +221,19 @@ cmd_init() {
 # are installing extra things that we cannot get from
 # apt like Odin!
 _llvm_check() {
-	if ! command -v clang++; then
-		sudo ln -sv "$(which clang++-13)" /usr/bin/clang++
-	fi
-	if ! command -v clang; then
-		sudo ln -sv "$(which clang-13)" /usr/bin/clang
-	fi
-	if ! command -v llvm-link; then
-		sudo ln -sv "$(which llvm-link-13)" /usr/bin/llvm-link
-	fi
-	if ! command -v llvm-config; then
-		sudo ln -sv "$(which llvm-config-13)" /usr/bin/llvm-config
-	fi
+	#if ! command -v clang++; then
+	#	sudo ln -sv "$(which clang++-${g_llvm_version})" /usr/bin/clang++
+	#fi
+	#if ! command -v clang; then
+	#	sudo ln -sv "$(which clang-${g_llvm_version})" /usr/bin/clang
+	#fi
+	#if ! command -v llvm-link; then
+	#	sudo ln -sv "$(which llvm-link-${g_llvm_version})" /usr/bin/llvm-link
+	#fi
+	#if ! command -v llvm-config; then
+	#	sudo ln -sv "$(which llvm-config-${g_llvm_version})" /usr/bin/llvm-config
+	#fi
+	echo 'llvm-check TODO...'
 }
 
 _compile() {
@@ -232,6 +255,9 @@ cmd_make() {
 		exit 1
 	fi
 
+	# TODO
+	g_repo_url='https://github.com/odin-lang/Odin.git'
+	g_repo_branch='master'
 	if [ ! -d Odin ]; then
 		git clone -b "$g_repo_branch" "$g_repo_url"
 	fi
@@ -294,11 +320,12 @@ _print_msg_help_exit() {
 	all:     perform all commands from start to finish
 
 	options:
-	name       argument     description
-	--help|-h  <none>       print this
-	-A         ARCH         one of native,amd64,i386,arm,arm64
-	                        where native does not run in a container
-	                        This overrides \${g_archs}
+	name         arg   description
+	--help|-h          print this
+	--arch|-A    ARCH  one of native,amd64,i386,arm,arm64
+	                   where native does not run in a container
+	                   This overrides \${g_arch}
+	
 
 	HELP
 	exit $ret
@@ -321,7 +348,7 @@ _print_msg_help_exit() {
 
 	_project_root=$(pwd)/
 
-	while getopts ':-:c:A:h' opt; do
+	while getopts ':-:c:p:A:h' opt; do
 		if [ "$opt" = "-" ]; then
 			opt="${OPTARG%%=*}"
 			OPTARG="${OPTARG#$opt}"
@@ -329,11 +356,11 @@ _print_msg_help_exit() {
 		fi
 
 		case "$opt" in
-		A | arch) g_archs=($OPTARG);;
-		h | help) _print_msg_help_exit;;
-		c | cmd)  cmd=${OPTARG};;
-		\?)       exit 2;;
-		*)        _print_msg_help_exit "$OPTARG: invalid argument";;
+		A | arch)    g_archs=($OPTARG);;
+		c | cmd)     cmd=${OPTARG};;
+		h | help)    _print_msg_help_exit;;
+		\?)          exit 2;;
+		*)           _print_msg_help_exit "$OPTARG: invalid argument";;
 		esac
 	done
 	shift $((OPTIND-1))
