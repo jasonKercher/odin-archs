@@ -3,3 +3,4 @@ example
 .gdb_history
 
 src/*
+!src/.gitignore
