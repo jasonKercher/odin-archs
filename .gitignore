@@ -2,5 +2,6 @@ Odin/
 example
 .gdb_history
 
-src/*
-!src/.gitignore
+src/
+
+*.bin
