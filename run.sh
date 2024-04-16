@@ -175,6 +175,11 @@ _create_container() {
 	local arch="$1"
 	shift
 
+	if [ -n "$BUILDAH_ISOLATION" ]; then
+		eprinln 'already in buildah unshare environment?!'
+		exit 1
+	fi
+
 	if ! { podman images --noheading | grep -wqs "odin_${arch}_image"; }; then
 		buildah unshare ./run.sh --arch="$arch" _base "$@"
 		error_catch "buildah unshare ./run.sh failed"
@@ -200,7 +205,7 @@ _create_container() {
 cmd_init() {
 	local extra_packages
 	local opt OPTARG OPTIND
-	while getopts ':-:l:p:h' opt; do
+	while getopts ':-:p:h' opt; do
 		if [ "$opt" = "-" ]; then
 			opt="${OPTARG%%=*}"
 			OPTARG="${OPTARG#$opt}"
@@ -237,6 +242,14 @@ cmd_init() {
 	done
 }
 
+_get_clang_in_path() {
+	# the compiler shells out to `clang` for linking...
+	if ! command -v clang >> /dev/null; then
+		export PATH=".:$PATH"
+		ln -svf "$(which clang-${llvm_version})" clang
+	fi
+}
+
 _compile() {
 	cd Odin || exit 2
 
@@ -244,8 +257,13 @@ _compile() {
 	[ -z "$llvm_version" ] && error_raise 'no llvm version set!?'
 	shift
 
-	export CXX=clang++-${llvm_version}
+	if command -v clang++-${llvm_version}; then
+		export CXX=clang++-${llvm_version}
+	fi
 	export LLVM_CONFIG=llvm-config-${llvm_version}
+
+	_get_clang_in_path
+	error_catch 'failed to get clang in PATH'
 
 	# It do be dubious
 	git config --global --add safe.directory /home/odinite/vol/Odin
@@ -254,15 +272,11 @@ _compile() {
 	error_catch "failed to build odin"
 	cp -v odin "odin-${g_archs[0]}"
 	cd ..
+
 	exit
 }
 
 cmd_make() {
-	if [ -n "$BUILDAH_ISOLATION" ]; then
-		1>&2 echo 'already in buildah unshare environment??'
-		exit 1
-	fi
-
 	local llvm_version=$_DEFAULT_LLVM_VERSION
 	local repo_url='https://github.com/odin-lang/Odin.git'
 	local repo_branch='master'
@@ -306,6 +320,27 @@ cmd_make() {
 #linux_arm32
 
 cmd_odin() {
+	local llvm_version=$_DEFAULT_LLVM_VERSION
+	local opt OPTARG OPTIND
+	while getopts ':-:l:' opt; do
+		if [ "$opt" = "-" ]; then
+			opt="${OPTARG%%=*}"
+			OPTARG="${OPTARG#$opt}"
+			OPTARG="${OPTARG#=}"
+		fi
+
+		case "$opt" in
+		l | llvm)   llvm_version=$OPTARG;;
+		h | help)   echo 'no odin help =P'; return;;
+		\?)         exit 2;;
+		*)          ((OPTIND -= 1)); break;; # trying to push the rest to odin
+		esac
+	done
+	shift $((OPTIND-1))
+
+	_get_clang_in_path
+	error_catch 'failed to get clang in PATH'
+
 	for arch in "${g_archs[@]}"; do
 		_container_call "odin_${arch}" "Odin/odin-${arch}" "$@"
 		# error_catch ??

@@ -8,3 +8,6 @@ example
 src/
 
 *.bin
+
+# Now we are having fun...
+*.core
