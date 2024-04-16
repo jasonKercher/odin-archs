@@ -9,6 +9,8 @@ if [ -z "$g_archs" ]; then
 	declare -a g_archs=()
 fi
 
+_DEFAULT_LLVM_VERSION=14
+
 _dep_check() {
 	local dep="$1"
 
@@ -219,11 +221,18 @@ cmd_init() {
 	for arch in "${g_archs[@]}"; do
 		if [ "$arch" != native ]; then
 			# This build requires buildah + podman to containerize the build.
-			# Also requires qemu-user or something...
+			# TODO: check for qemu stuff up front.
 			_dep_check buildah
 			_dep_check podman
 			_create_container "$arch" "${extra_packages[@]}"
-			error_catch '_create_container failed'
+			local msg
+			msg=$(cat <<-EOF
+			_create_container failed: May be missing some qemu packages...
+			On Arch Linux based distros, these are called:
+			qemu-user-static and qemu-user-static-binfmt
+			EOF
+			)
+			error_catch 
 		fi
 	done
 }
@@ -235,10 +244,8 @@ _compile() {
 	[ -z "$llvm_version" ] && error_raise 'no llvm version set!?'
 	shift
 
-	sudo ln -fsv "$(which clang++-${llvm_version})" /usr/bin/clang++
-	sudo ln -fsv "$(which clang-${llvm_version})" /usr/bin/clang
-	sudo ln -fsv "$(which llvm-link-${llvm_version})" /usr/bin/llvm-link
-	sudo ln -fsv "$(which llvm-config-${llvm_version})" /usr/bin/llvm-config
+	export CXX=clang++-${llvm_version}
+	export LLVM_CONFIG=llvm-config-${llvm_version}
 
 	# It do be dubious
 	git config --global --add safe.directory /home/odinite/vol/Odin
@@ -256,7 +263,7 @@ cmd_make() {
 		exit 1
 	fi
 
-	local llvm_version=17
+	local llvm_version=$_DEFAULT_LLVM_VERSION
 	local repo_url='https://github.com/odin-lang/Odin.git'
 	local repo_branch='master'
 	local opt OPTARG OPTIND
@@ -309,7 +316,7 @@ cmd_all() {
 	cmd_init
 	error_catch 'cmd_init failed'
 
-	cmd_make 17
+	cmd_make --llvm=$_DEFAULT_LLVM_VERSION
 	error_catch 'cmd_make failed'
 
 	cmd_odin "$@"
