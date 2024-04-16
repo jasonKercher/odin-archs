@@ -1,6 +1,9 @@
 Odin/
-example
 .gdb_history
+
+example
+!example.odin
+*.odin
 
 src/
 
