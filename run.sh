@@ -122,7 +122,7 @@ _base() {
 	##EOF
 
 	buildah run $container apt update
-	buildah run $container apt -y install git build-essential "$@"
+	buildah run $container apt -y install gdb git build-essential "$@"
 
 	# reduce size of container by clearing out apt caches
 	buildah run $container apt clean && \
@@ -192,11 +192,11 @@ _create_container() {
 
 		podman run -dit \
 			--cap-add=SYS_PTRACE \
-			--workdir /home/odinite/vol \
+			--workdir /home/odinist/vol \
 			--name "odin_${arch}" \
 			--user $uid:$gid \
 			--userns keep-id \
-			--volume ./:/home/odinite/vol \
+			--volume ./:/home/odinist/vol \
 			"odin_${arch}_image"
 		error_catch '_create_container: podman run failed'
 	fi
@@ -243,6 +243,7 @@ cmd_init() {
 }
 
 _get_clang_in_path() {
+	local llvm_version=$1
 	# the compiler shells out to `clang` for linking...
 	if ! command -v clang >> /dev/null; then
 		export PATH=".:$PATH"
@@ -262,11 +263,11 @@ _compile() {
 	fi
 	export LLVM_CONFIG=llvm-config-${llvm_version}
 
-	_get_clang_in_path
+	_get_clang_in_path "$llvm_version"
 	error_catch 'failed to get clang in PATH'
 
 	# It do be dubious
-	git config --global --add safe.directory /home/odinite/vol/Odin
+	git config --global --add safe.directory /home/odinist/vol/Odin
 
 	make "$@"
 	error_catch "failed to build odin"
@@ -330,15 +331,15 @@ cmd_odin() {
 		fi
 
 		case "$opt" in
-		l | llvm)   llvm_version=$OPTARG;;
-		h | help)   echo 'no odin help =P'; return;;
-		\?)         exit 2;;
-		*)          ((OPTIND -= 1)); break;; # trying to push the rest to odin
+		l | llvm) llvm_version=$OPTARG;;
+		h | help) echo 'no odin help =P'; return;;
+		\?)       exit 2;;
+		*)        ((OPTIND -= 1)); break;; # trying to push the rest to odin
 		esac
 	done
 	shift $((OPTIND-1))
 
-	_get_clang_in_path
+	_get_clang_in_path "$llvm_version"
 	error_catch 'failed to get clang in PATH'
 
 	for arch in "${g_archs[@]}"; do
