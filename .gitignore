@@ -11,3 +11,7 @@ src/
 
 # Now we are having fun...
 *.core
+
+
+# run.sh makes a symlink and adds ./ to PATH
+clang

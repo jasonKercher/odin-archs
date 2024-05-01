@@ -66,7 +66,9 @@ _clean() {
 	podman rm "odin_${arch}"
 	podman rmi "odin_${arch}_image"
 	buildah rm "base_${arch}"
-	rm "Odin/odin-${arch}"
+
+	# TODO: make this part of cmd_make
+	#rm "Odin/odin-${arch}"
 	true
 }
 
@@ -191,7 +193,7 @@ _create_container() {
 		gid=$(id -g)
 
 		podman run -dit \
-			--cap-add=SYS_PTRACE \
+			--cap-add SYS_PTRACE \
 			--workdir /home/odinist/vol \
 			--name "odin_${arch}" \
 			--user $uid:$gid \
@@ -221,7 +223,7 @@ cmd_init() {
 	done
 	shift $((OPTIND-1))
 
-	extra_packages+=(llvm-14 clang-14 llvm-17 clang-17 make vim-nox)
+	extra_packages+=(llvm-14 clang-14 llvm-17 clang-17 make vim-nox strace)
 
 	for arch in "${g_archs[@]}"; do
 		if [ "$arch" != native ]; then
@@ -242,6 +244,7 @@ cmd_init() {
 	done
 }
 
+# The odin compiler directly relies on finding clang in $PATH
 _get_clang_in_path() {
 	local llvm_version=$1
 	# the compiler shells out to `clang` for linking...
@@ -249,6 +252,9 @@ _get_clang_in_path() {
 		export PATH=".:$PATH"
 		ln -svf "$(which clang-${llvm_version})" clang
 	fi
+
+	# Did we fix it?
+	command -v clang >> /dev/null
 }
 
 _compile() {
@@ -264,7 +270,7 @@ _compile() {
 	export LLVM_CONFIG=llvm-config-${llvm_version}
 
 	_get_clang_in_path "$llvm_version"
-	error_catch 'failed to get clang in PATH'
+	error_catch "failed to get clang (${llvm_version}) into PATH"
 
 	# It do be dubious
 	git config --global --add safe.directory /home/odinist/vol/Odin
@@ -309,7 +315,8 @@ cmd_make() {
 			error_raise "missing odin container.  Try '$0 -A \"$arch\" init'"
 		fi
 
-		_container_call --root "odin_${arch}" ./run.sh --arch="$arch" _compile "$llvm_version" "$@"
+		_container_call --root "odin_${arch}" \
+			./run.sh --arch="$arch" _compile "$llvm_version" "$@"
 		error_catch "function _compile failed"
 	done
 }
@@ -320,7 +327,20 @@ cmd_make() {
 #linux_arm64
 #linux_arm32
 
+_odin() {
+	local llvm_version=$1
+	[ -z "$llvm_version" ] && error_raise 'no llvm version set!?'
+	shift
+
+	_get_clang_in_path "$llvm_version"
+	error_catch "failed to get clang (${llvm_version}) into PATH"
+
+	"Odin/odin-${g_archs[0]}" "$@"
+}
+
 cmd_odin() {
+	# We are trying to cherry pick options here before they go to
+	# the compiler so avoid overlap (like --help).
 	local llvm_version=$_DEFAULT_LLVM_VERSION
 	local opt OPTARG OPTIND
 	while getopts ':-:l:' opt; do
@@ -332,18 +352,15 @@ cmd_odin() {
 
 		case "$opt" in
 		l | llvm) llvm_version=$OPTARG;;
-		h | help) echo 'no odin help =P'; return;;
 		\?)       exit 2;;
-		*)        ((OPTIND -= 1)); break;; # trying to push the rest to odin
+		*)        ((OPTIND -= 1)); break;; # PASS TO ODIN
 		esac
 	done
 	shift $((OPTIND-1))
 
-	_get_clang_in_path "$llvm_version"
-	error_catch 'failed to get clang in PATH'
-
 	for arch in "${g_archs[@]}"; do
-		_container_call "odin_${arch}" "Odin/odin-${arch}" "$@"
+		_container_call "odin_${arch}" \
+			./run.sh --arch="${arch}" _odin "${llvm_version}" "$@"
 		# error_catch ??
 	done
 }
