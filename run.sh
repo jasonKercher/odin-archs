@@ -35,7 +35,7 @@ _container_kill() {
 
 # execute fuction in this script from within the container.
 _container_call() {
-	local is_root
+	local is_root=false
 	if [ "$1" = '--root' ]; then
 		is_root=true
 		shift
