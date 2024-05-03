@@ -62,6 +62,8 @@ _container_call() {
 }
 
 _clean() {
+	local arch="$1"
+	echo "Clean ${arch}"
 	podman kill "odin_${arch}"
 	podman rm "odin_${arch}"
 	podman rmi "odin_${arch}_image"
@@ -73,6 +75,7 @@ _clean() {
 }
 
 cmd_clean() {
+	local arch
 	for arch in "${g_archs[@]}"; do
 		_clean "$arch"
 		error_catch 'clean failed'
@@ -225,8 +228,10 @@ cmd_init() {
 
 	extra_packages+=(llvm-14 clang-14 llvm-17 clang-17 make vim-nox strace)
 
+	local arch
 	for arch in "${g_archs[@]}"; do
 		if [ "$arch" != native ]; then
+			echo "Init ${arch}"
 			# This build requires buildah + podman to containerize the build.
 			# TODO: check for qemu stuff up front.
 			_dep_check buildah
@@ -310,6 +315,7 @@ cmd_make() {
 		git clone -b "$repo_branch" "$repo_url"
 	fi
 
+	local arch
 	for arch in "${g_archs[@]}"; do
 		if [ "$arch" != native ] && ! { podman ps --noheading -a | grep -wqs "odin_${arch}"; }; then
 			error_raise "missing odin container.  Try '$0 -A \"$arch\" init'"
@@ -358,6 +364,7 @@ cmd_odin() {
 	done
 	shift $((OPTIND-1))
 
+	local arch
 	for arch in "${g_archs[@]}"; do
 		_container_call "odin_${arch}" \
 			./run.sh --arch="${arch}" _odin "${llvm_version}" "$@"
@@ -470,9 +477,9 @@ _print_msg_help_exit() {
 			error_raise "$cmd is not a defined function"
 		fi
 		if [ $# -eq 0 ]; then
-			printf '\nRUN [%s]\n\n' "$cmd"
+			printf '\nRUN %s [%s]\n\n' "${g_archs[*]}" "$cmd"
 		else
-			printf '\nRUN [%s %s]\n\n' "$cmd" "$*"
+			printf '\nRUN %s [%s %s]\n\n' "${g_archs[*]}" "$cmd" "$*"
 		fi
 		"$cmd" "$@"
 		error_catch "function failed: $cmd $*"
