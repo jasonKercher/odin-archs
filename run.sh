@@ -116,18 +116,14 @@ _base() {
 
 	buildah run $container apt update
 	buildah run $container apt -y dist-upgrade
-	buildah run $container apt -y install sudo locales ca-certificates
+	buildah run $container apt -y install sudo locales ca-certificates gdb git build-essential "$@"
 
-	### Update for llvm 17 after ca-cert install
-	##cat > ${mountpoint}/etc/apt/sources.list <<- EOF
-
-	### LLVM 17
-	##deb http://deb.debian.org/debian/ unstable main contrib non-free
-	##deb-src http://deb.debian.org/debian/ unstable main contrib non-free
-	##EOF
-
-	buildah run $container apt update
-	buildah run $container apt -y install gdb git build-essential "$@"
+	#if [ ! -f ${mountpoint}/usr/bin/llvm-config ]; then
+	#	cp -v ${mountpoint}/usr/bin/llvm-config-14 ${mountpoint}/usr/bin/llvm-config
+	#fi
+	#if [ ! -f ${mountpoint}/usr/bin/clang ]; then
+	#	cp -v ${mountpoint}/usr/bin/clang-14 ${mountpoint}/usr/bin/clang
+	#fi
 
 	# reduce size of container by clearing out apt caches
 	buildah run $container apt clean && \
@@ -226,7 +222,7 @@ cmd_init() {
 	done
 	shift $((OPTIND-1))
 
-	extra_packages+=(llvm-14 clang-14 llvm-17 clang-17 make vim-nox strace)
+	extra_packages+=(llvm-14 clang-14 llvm-17 clang-17 make vim-nox strace cmake llvm-18 clang-18 libclang-18-dev liblld-18 liblld-18-dev libllvm18)
 
 	local arch
 	for arch in "${g_archs[@]}"; do
@@ -280,10 +276,15 @@ _compile() {
 	# It do be dubious
 	git config --global --add safe.directory /home/odinist/vol/Odin
 
+	[ -f odin ] && rm -v odin
 	make "$@"
-	error_catch "failed to build odin"
-	cp -v odin "odin-${g_archs[0]}"
+	res=$?
+	[ -f odin ] && cp -v odin "odin-${g_archs[0]}"
 	cd ..
+
+	if [ $res -ne 0 ]; then
+		error_raise 'failed to build odin'
+	fi
 
 	exit
 }
