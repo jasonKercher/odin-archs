@@ -222,7 +222,10 @@ cmd_init() {
 	done
 	shift $((OPTIND-1))
 
-	extra_packages+=(llvm-14 clang-14 llvm-17 clang-17 make vim-nox strace cmake llvm-18 clang-18 libclang-18-dev liblld-18 liblld-18-dev libllvm18)
+	extra_packages+=(make vim-nox strace)
+	extra_packages+=(llvm-14 clang-14 llvm-17 clang-17 llvm-18 clang-18)
+	# for zig
+	#extra_packages+=(cmake libclang-18-dev liblld-18 liblld-18-dev libllvm18)
 
 	local arch
 	for arch in "${g_archs[@]}"; do
@@ -249,10 +252,8 @@ cmd_init() {
 _get_clang_in_path() {
 	local llvm_version=$1
 	# the compiler shells out to `clang` for linking...
-	if ! command -v clang >> /dev/null; then
-		export PATH=".:$PATH"
-		ln -svf "$(which clang-${llvm_version})" clang
-	fi
+	export PATH=".:$PATH"
+	ln -svf "$(which clang-${llvm_version})" clang
 
 	# Did we fix it?
 	command -v clang >> /dev/null
