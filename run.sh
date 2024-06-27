@@ -183,7 +183,14 @@ _create_container() {
 
 	if ! { podman images --noheading | grep -wqs "odin_${arch}_image"; }; then
 		buildah unshare ./run.sh --arch="$arch" _base "$@"
-		error_catch "buildah unshare ./run.sh failed"
+		local msg
+		msg=$(cat <<-EOF
+		buildah unshare ./run.sh failed: May be missing some qemu packages...
+		On Arch Linux based distros, these are called:
+		qemu-user-static and qemu-user-static-binfmt
+		EOF
+		)
+		error_catch "$msg"
 	fi
 
 	# create the container(s) if it does not exist yet
@@ -236,14 +243,7 @@ cmd_init() {
 			_dep_check buildah
 			_dep_check podman
 			_create_container "$arch" "${extra_packages[@]}"
-			local msg
-			msg=$(cat <<-EOF
-			_create_container failed: May be missing some qemu packages...
-			On Arch Linux based distros, these are called:
-			qemu-user-static and qemu-user-static-binfmt
-			EOF
-			)
-			error_catch "$msg"
+			error_catch "_create_container failed"
 		fi
 	done
 }
