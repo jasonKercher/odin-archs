@@ -269,7 +269,9 @@ _compile() {
 	if command -v clang++-${llvm_version}; then
 		export CXX=clang++-${llvm_version}
 	fi
-	export LLVM_CONFIG=llvm-config-${llvm_version}
+	if command -v llvm-config-${llvm_version}; then
+		export LLVM_CONFIG=llvm-config-${llvm_version}
+	fi
 
 	_get_clang_in_path "$llvm_version"
 	error_catch "failed to get clang (${llvm_version}) into PATH"
@@ -343,7 +345,8 @@ _odin() {
 	_get_clang_in_path "$llvm_version"
 	error_catch "failed to get clang (${llvm_version}) into PATH"
 
-	"Odin/odin-${g_archs[0]}" "$@"
+	ln -svf "Odin/odin-${g_archs[0]}" odin
+	./odin "$@"
 }
 
 cmd_odin() {

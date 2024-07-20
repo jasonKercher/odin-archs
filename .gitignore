@@ -15,3 +15,4 @@ src/
 
 # run.sh makes a symlink and adds ./ to PATH
 clang
+odin
