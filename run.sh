@@ -9,7 +9,7 @@ if [ -z "$g_archs" ]; then
 	declare -a g_archs=()
 fi
 
-_DEFAULT_LLVM_VERSION=14
+_DEFAULT_LLVM_VERSION=18
 
 _dep_check() {
 	local dep="$1"
@@ -263,7 +263,9 @@ _compile() {
 	cd Odin || exit 2
 
 	local llvm_version=$1
-	[ -z "$llvm_version" ] && error_raise 'no llvm version set!?'
+	if [ -z "$llvm_version" ]; then
+		llvm_version=$_DEFAULT_LLVM_VERSION
+	fi
 	shift
 
 	if command -v clang++-${llvm_version}; then
@@ -346,7 +348,8 @@ _odin() {
 	error_catch "failed to get clang (${llvm_version}) into PATH"
 
 	ln -svf "Odin/odin-${g_archs[0]}" odin
-	./odin "$@"
+	# . is in PATH
+	odin "$@"
 }
 
 cmd_odin() {
