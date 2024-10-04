@@ -11,6 +11,8 @@ main :: proc() {
 		fmt.println("hello from arm32")
 	} else when ODIN_ARCH == .i386 {
 		fmt.println("hello from i386")
+	} else when ODIN_ARCH == .riscv64 {
+		fmt.println("hello from riscv64")
 	}
 }
 

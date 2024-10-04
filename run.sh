@@ -104,7 +104,7 @@ _base() {
 
 	# If the original container already exists, we don't need to create it
 	if ! { buildah containers --noheading | grep -wqs $container; }; then
-		buildah from --cap-add SYS_PTRACE --arch "$arch" --name $container debian:unstable-20240311
+		buildah from --cap-add SYS_PTRACE --arch "$arch" --name $container ubuntu:24.04
 	fi
 
 	# method not sane because of set -x
