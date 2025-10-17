@@ -82,10 +82,6 @@ cmd_clean() {
 	done
 }
 
-_install_llvm17() {
-	echo "GO GET FUCKED!"
-}
-
 _base() {
 	set -e  # no errors allowed
 	local arch="${g_archs[0]}"
@@ -96,15 +92,21 @@ _base() {
 	local gid=7272
 	local container="base_${arch}"
 
+	local distro=ubuntu:24.04
+
 	echo "BUILDING container ${container}..."
 
 	if [ -z "$arch" ]; then
 		1>&2 echo "missing argument"
 	fi
 
+	if [ "$arch" = 386 ]; then
+		distro=debian:latest
+	fi
+
 	# If the original container already exists, we don't need to create it
 	if ! { buildah containers --noheading | grep -wqs $container; }; then
-		buildah from --cap-add SYS_PTRACE --arch "$arch" --name $container ubuntu:24.04
+		buildah from --cap-add SYS_PTRACE --arch "$arch" --name $container $distro
 	fi
 
 	# method not sane because of set -x
@@ -230,7 +232,8 @@ cmd_init() {
 	shift $((OPTIND-1))
 
 	extra_packages+=(make vim-nox strace)
-	extra_packages+=(llvm-14 clang-14 llvm-17 clang-17 llvm-18 clang-18)
+	extra_packages+=(llvm-19 clang-19)
+	#extra_packages+=(llvm-14 clang-14 llvm-17 clang-17 llvm-18 clang-18)
 	# for zig
 	#extra_packages+=(cmake libclang-18-dev liblld-18 liblld-18-dev libllvm18)
 
@@ -299,7 +302,7 @@ cmd_make() {
 	local repo_url='https://github.com/odin-lang/Odin.git'
 	local repo_branch='master'
 	local opt OPTARG OPTIND
-	while getopts ':-:b:r:h' opt; do
+	while getopts ':-:l:b:r:h' opt; do
 		if [ "$opt" = "-" ]; then
 			opt="${OPTARG%%=*}"
 			OPTARG="${OPTARG#$opt}"
