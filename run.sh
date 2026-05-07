@@ -9,7 +9,7 @@ if [ -z "$g_archs" ]; then
 	declare -a g_archs=()
 fi
 
-_DEFAULT_LLVM_VERSION=18
+_DEFAULT_LLVM_VERSION=19
 
 _dep_check() {
 	local dep="$1"
@@ -92,7 +92,11 @@ _base() {
 	local gid=7272
 	local container="base_${arch}"
 
-	local distro=ubuntu:24.04
+	if [ ${arch} = 386 ]; then
+		local distro=debian:latest
+	else
+		local distro=ubuntu:24.04
+	fi
 
 	echo "BUILDING container ${container}..."
 
